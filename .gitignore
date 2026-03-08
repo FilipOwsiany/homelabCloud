@@ -1,0 +1,10 @@
+# secrets
+**/.env
+
+# persistent data
+data/
+backups/
+
+# misc
+*.log
+.DS_Store
