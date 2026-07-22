@@ -6,6 +6,7 @@ The complete English migration runbook is available in two formats:
 
 - [Markdown migration guide](docs/MIGRATION_GUIDE.md)
 - [Standalone HTML migration guide](docs/migration-guide.html)
+- [RPi boot/storage troubleshooting](docs/BOOT_STORAGE_TROUBLESHOOTING.md)
 
 ## Quick commands
 
@@ -52,6 +53,7 @@ Start or stop every stack in dependency order:
 compose/                 Compose projects and safe .env.example files
 docs/MIGRATION_GUIDE.md  Source migration runbook
 docs/migration-guide.html Standalone browser-readable runbook
+docs/BOOT_STORAGE_TROUBLESHOOTING.md External-disk boot ordering and recovery
 scripts/backup.sh        Checksummed logical/full backup creator
 scripts/restore.sh       Guarded restore into an empty target
 scripts/preflight.sh     Read-only host and Compose checks

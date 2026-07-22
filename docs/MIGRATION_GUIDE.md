@@ -290,6 +290,8 @@ df -h /srv/data /srv/migration
 
 Configure every external disk/NFS/CIFS dependency in `/etc/fstab` and verify it is mounted before Docker starts. A missing mount can cause Docker to write into an empty directory on the root filesystem.
 
+On this RPi deployment, Docker must explicitly depend on `/srv/data`; otherwise a slow or missing USB disk can make database-backed services start against empty shadow directories on the SD card. Follow [Preventing Empty Services After a Raspberry Pi Reboot](BOOT_STORAGE_TROUBLESHOOTING.md) to diagnose the condition and install the systemd `RequiresMountsFor=/srv/data` guard before relying on unattended reboots.
+
 ### Step 3: restore the exact repository revision
 
 Choose one method.
