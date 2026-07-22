@@ -355,8 +355,20 @@ EOF
   repo_git bundle create "${destination}/meta/repository.bundle" --all 2>/dev/null \
     || warn "Could not create the Git repository bundle"
 
-  docker ps --no-trunc --format '{{.Names}}\t{{.Image}}\t{{.ID}}\t{{.Status}}' \
-    | sort > "${destination}/meta/running-containers.tsv"
+  {
+    local details
+    local configured_image
+    local immutable_image_id
+    local created
+    local state
+    printf 'container\tconfigured_image\timmutable_image_id\tcreated\tstate\n'
+    while IFS= read -r container; do
+      details="$(docker inspect --format '{{.Config.Image}}|{{.Image}}|{{.Created}}|{{.State.Status}}' "${container}")"
+      IFS='|' read -r configured_image immutable_image_id created state <<< "${details}"
+      printf '%s\t%s\t%s\t%s\t%s\n' \
+        "${container}" "${configured_image}" "${immutable_image_id}" "${created}" "${state}"
+    done < <(docker ps --format '{{.Names}}' | sort)
+  } > "${destination}/meta/running-containers.tsv"
   docker version > "${destination}/meta/docker-version.txt"
   docker compose version > "${destination}/meta/docker-compose-version.txt"
 }
