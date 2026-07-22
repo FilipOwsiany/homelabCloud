@@ -1,0 +1,12 @@
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:2026.3.1
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      - TZ=${TZ:-Europe/Warsaw}
+    volumes:
+      - ${HOMEASSISTANT_CONFIG_PATH:-./config}:/config
+      - /etc/localtime:/etc/localtime:ro

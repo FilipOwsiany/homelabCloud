@@ -1,10 +1,22 @@
-# secrets
+# Secrets. Commit the examples, never the live credentials.
 **/.env
+!**/.env.example
+**/secrets.yaml
+compose/mqtt/config/passwd
 
-# persistent data
-data/
+# Runtime and persistent data.
 backups/
+data/
+log/
+compose/homeassistant/config/
 
-# misc
+# Database sidecars and application runtime files.
+*.db
+*.db-shm
+*.db-wal
 *.log
+*.log.*
+*.lock
+
+# Local tooling.
 .DS_Store

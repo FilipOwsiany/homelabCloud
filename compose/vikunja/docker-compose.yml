@@ -1,0 +1,42 @@
+services:
+  vikunja:
+    image: vikunja/vikunja:2.3.0
+    container_name: vikunja
+    restart: unless-stopped
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: ${VIKUNJA_PUBLIC_URL}
+      VIKUNJA_SERVICE_SECRET: ${VIKUNJA_SERVICE_SECRET}
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: "false"
+
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: vikunja-db
+      VIKUNJA_DATABASE_USER: vikunja
+      VIKUNJA_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      VIKUNJA_DATABASE_DATABASE: vikunja
+
+      VIKUNJA_SERVICE_TIMEZONE: ${TZ:-Europe/Warsaw}
+    ports:
+      - "3456:3456"
+    volumes:
+      - ${VIKUNJA_DATA_ROOT:-/srv/data/vikunja}/files:/app/vikunja/files
+    depends_on:
+      vikunja-db:
+        condition: service_healthy
+
+  vikunja-db:
+    image: postgres:18
+    container_name: vikunja-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vikunja
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: vikunja
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ${VIKUNJA_DATA_ROOT:-/srv/data/vikunja}/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U vikunja"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
