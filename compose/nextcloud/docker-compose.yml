@@ -57,3 +57,18 @@ services:
       TZ: ${TZ}
     volumes:
       - ${NEXTCLOUD_DATA_ROOT:-/srv/data/nextcloud}/html:/var/www/html
+
+  nextcloud-cron:
+    image: nextcloud:33.0.0-apache
+    container_name: nextcloud_cron
+    restart: unless-stopped
+    entrypoint: /cron.sh
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
+      nextcloud-redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ${NEXTCLOUD_DATA_ROOT:-/srv/data/nextcloud}/html:/var/www/html

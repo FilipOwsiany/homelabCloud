@@ -228,6 +228,7 @@ backup_nextcloud() {
     info "Enabling Nextcloud maintenance mode"
     docker exec -u www-data nextcloud_app php occ maintenance:mode --on >/dev/null
     nextcloud_maintenance=1
+    stop_if_running nextcloud_cron
   fi
   dump_mariadb nextcloud_db nextcloud
   if (( full_backup == 1 )); then
@@ -236,6 +237,7 @@ backup_nextcloud() {
     archive_contents "${data_root}/html/config" nextcloud-config
   fi
   disable_nextcloud_maintenance
+  restart_stopped_containers
 }
 
 backup_vikunja() {
@@ -294,7 +296,7 @@ show_dry_run() {
         paths=("$(persistent_path immich uploads)" "$(persistent_path immich database)")
         ;;
       nextcloud)
-        containers=(nextcloud_app nextcloud_db nextcloud_redis)
+        containers=(nextcloud_app nextcloud_cron nextcloud_db nextcloud_redis)
         paths=("$(persistent_path nextcloud root)")
         ;;
       vikunja)
@@ -336,7 +338,7 @@ show_dry_run() {
 
 write_metadata() {
   local git_commit="unknown"
-  git_commit="$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || true)"
+  git_commit="$(repo_git rev-parse HEAD 2>/dev/null || true)"
 
   cat > "${destination}/meta/manifest.env" <<EOF
 BACKUP_FORMAT_VERSION=1
@@ -348,15 +350,19 @@ SOURCE_ARCH=$(uname -m)
 GIT_COMMIT=${git_commit}
 EOF
 
-  git -C "${REPO_ROOT}" status --short > "${destination}/meta/git-status.txt" 2>/dev/null || true
-  git -C "${REPO_ROOT}" diff --binary HEAD > "${destination}/meta/worktree.patch" 2>/dev/null || true
-  git -C "${REPO_ROOT}" bundle create "${destination}/meta/repository.bundle" --all 2>/dev/null \
+  repo_git status --short > "${destination}/meta/git-status.txt" 2>/dev/null || true
+  repo_git diff --binary HEAD > "${destination}/meta/worktree.patch" 2>/dev/null || true
+  repo_git bundle create "${destination}/meta/repository.bundle" --all 2>/dev/null \
     || warn "Could not create the Git repository bundle"
 
   docker ps --no-trunc --format '{{.Names}}\t{{.Image}}\t{{.ID}}\t{{.Status}}' \
     | sort > "${destination}/meta/running-containers.tsv"
   docker version > "${destination}/meta/docker-version.txt"
   docker compose version > "${destination}/meta/docker-compose-version.txt"
+}
+
+repo_git() {
+  git -c "safe.directory=${REPO_ROOT}" -C "${REPO_ROOT}" "$@"
 }
 
 write_checksums() {
