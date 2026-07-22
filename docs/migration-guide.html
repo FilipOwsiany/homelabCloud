@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete migration runbook for the homelabCloud services">
+  <meta name="source-sha256" content="c1586b23cd25960a4f4b02a9a501cee85f441d25fb3325281d41dc83b76bf522">
+  <title>Homelab Server Migration Guide</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f8fa; --panel: #fff; --text: #172033; --muted: #5d687a; --line: #d8dee9; --accent: #1769aa; --code: #eef2f7; --warn: #fff8dd; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #10141c; --panel: #171d28; --text: #e8edf5; --muted: #aeb8c8; --line: #394254; --accent: #70b7ff; --code: #202838; --warn: #362f16; } }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.62 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .layout { display: grid; grid-template-columns: minmax(220px, 290px) minmax(0, 980px); gap: 2rem; max-width: 1340px; margin: 0 auto; padding: 2rem; }
+    nav { position: sticky; top: 1rem; align-self: start; max-height: calc(100vh - 2rem); overflow: auto; padding: 1.25rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+    nav strong { display: block; margin-bottom: .75rem; }
+    nav ol { margin: 0; padding-left: 1.25rem; font-size: .92rem; }
+    nav li { margin: .35rem 0; }
+    nav .source { display: block; margin-top: 1rem; font-size: .85rem; color: var(--muted); }
+    main { min-width: 0; padding: 2.4rem 3rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgb(0 0 0 / 7%); }
+    h1, h2, h3 { line-height: 1.25; scroll-margin-top: 1rem; }
+    h1 { margin-top: 0; font-size: clamp(2rem, 5vw, 3.2rem); }
+    h2 { margin-top: 2.8rem; padding-bottom: .35rem; border-bottom: 1px solid var(--line); }
+    h3 { margin-top: 2rem; }
+    .anchor { margin-left: .45rem; color: var(--muted); text-decoration: none; opacity: 0; font-weight: 400; }
+    h1:hover .anchor, h2:hover .anchor, h3:hover .anchor { opacity: 1; }
+    a { color: var(--accent); }
+    p, li { max-width: 82ch; }
+    li { margin: .3rem 0; }
+    code { padding: .12rem .3rem; background: var(--code); border-radius: 4px; font: .9em ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre { overflow: auto; padding: 1rem 1.15rem; background: var(--code); border: 1px solid var(--line); border-radius: 8px; line-height: 1.45; }
+    pre code { padding: 0; background: transparent; }
+    .table-scroll { overflow-x: auto; margin: 1.25rem 0; }
+    table { width: 100%; border-collapse: collapse; font-size: .93rem; }
+    th, td { padding: .65rem .75rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--code); }
+    .check { list-style: none; margin-left: -1.4rem; }
+    input[type="checkbox"] { vertical-align: middle; }
+    .generated { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+    @media (max-width: 860px) { .layout { display: block; padding: .75rem; } nav { position: static; max-height: none; margin-bottom: .75rem; } main { padding: 1.4rem; } }
+    @media print { body { background: #fff; color: #000; font-size: 10pt; } .layout { display: block; max-width: none; padding: 0; } nav { display: none; } main { padding: 0; border: 0; box-shadow: none; } pre, table { break-inside: avoid; } a { color: #000; text-decoration: none; } .anchor { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav aria-label="Table of contents">
+      <strong>Contents</strong>
+      <ol><li><a href="#1-scope-and-safety-rules">1. Scope and safety rules</a></li>
+<li><a href="#2-architecture-and-dependency-inventory">2. Architecture and dependency inventory</a></li>
+<li><a href="#3-external-dependencies-not-stored-in-this-repository">3. External dependencies not stored in this repository</a></li>
+<li><a href="#4-prepare-the-source-server">4. Prepare the source server</a></li>
+<li><a href="#5-create-and-verify-the-migration-backup">5. Create and verify the migration backup</a></li>
+<li><a href="#6-prepare-the-target-server">6. Prepare the target server</a></li>
+<li><a href="#7-restore-all-services">7. Restore all services</a></li>
+<li><a href="#8-per-service-configuration-and-validation">8. Per-service configuration and validation</a></li>
+<li><a href="#9-whole-system-validation-before-dns-cutover">9. Whole-system validation before DNS cutover</a></li>
+<li><a href="#10-cutover">10. Cutover</a></li>
+<li><a href="#11-rollback">11. Rollback</a></li>
+<li><a href="#12-after-migration">12. After migration</a></li>
+<li><a href="#13-official-references">13. Official references</a></li></ol>
+      <a class="source" href="MIGRATION_GUIDE.md">Open Markdown source</a>
+    </nav>
+    <main>
+<h1 id="homelab-server-migration-guide">Homelab Server Migration Guide<a class="anchor" href="#homelab-server-migration-guide" aria-label="Link to this section">#</a></h1>
+<p>This is the complete runbook for moving this repository and all six services to another Linux server. It covers the application containers, databases, caches, files, secrets, networking, external dependencies, validation, cutover, and rollback.</p>
+<p>The guide was verified against the repository state and official product documentation on 2026-07-22. Migrate with the versions pinned in this repository. Upgrade only after the restored server has passed every validation check.</p>
+<h2 id="1-scope-and-safety-rules">1. Scope and safety rules<a class="anchor" href="#1-scope-and-safety-rules" aria-label="Link to this section">#</a></h2>
+<p>The migration includes:</p>
+<ul>
+<li>Authentik, PostgreSQL, and Redis;</li>
+<li>Immich, PostgreSQL, Valkey, machine learning, and all photo/video assets;</li>
+<li>Nextcloud, MariaDB, Redis, cron, configuration, apps, and user files;</li>
+<li>Vikunja, PostgreSQL, and attachments;</li>
+<li>Home Assistant Container, including its YAML, <code>.storage</code>, secrets, and SQLite state;</li>
+<li>Eclipse Mosquitto, including its password file and retained/persistent messages;</li>
+<li>ignored <code>.env</code> files, the exact Git revision, running-image inventory, and checksums.</li>
+</ul>
+<p>Follow these rules:</p>
+<ol>
+<li>Never migrate by copying a live PostgreSQL or MariaDB data directory. Use the logical dumps created by <code>scripts/backup.sh</code>.</li>
+<li>Never start an older application version against a database written by a newer version. Restore with the repository's pinned versions first.</li>
+<li>A complete migration requires <code>--full</code>. A backup without <code>--full</code> intentionally omits large Immich, Nextcloud, Vikunja, and MQTT data.</li>
+<li>Treat the backup as highly sensitive. It contains passwords, application secret keys, identity data, Home Assistant credentials, photos, files, and MQTT password hashes.</li>
+<li>Do not allow both servers to accept writes after cutover. Their databases will diverge.</li>
+<li>Keep the old server and the verified backup unchanged until the new server has run successfully for an agreed observation period.</li>
+<li>The restore script never deletes data. It stops selected Compose projects but refuses to restore over a non-empty persistent directory.</li>
+</ol>
+<h2 id="2-architecture-and-dependency-inventory">2. Architecture and dependency inventory<a class="anchor" href="#2-architecture-and-dependency-inventory" aria-label="Link to this section">#</a></h2>
+<h3 id="21-service-matrix">2.1 Service matrix<a class="anchor" href="#21-service-matrix" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr>
+<th>Stack</th>
+<th>Pinned application image</th>
+<th>Host port</th>
+<th>Database</th>
+<th>Cache/worker</th>
+<th>Authoritative files</th>
+</tr></thead><tbody>
+<tr>
+<td>Authentik</td>
+<td><code>ghcr.io/goauthentik/server:2025.2.4</code></td>
+<td><code>9000</code>, <code>9443</code></td>
+<td>PostgreSQL 15</td>
+<td>Redis 7, Authentik worker</td>
+<td>media, templates, optional certificates</td>
+</tr>
+<tr>
+<td>Immich</td>
+<td><code>ghcr.io/immich-app/immich-server:v2.5.6</code></td>
+<td><code>2283</code></td>
+<td>Immich PostgreSQL 14/VectorChord image</td>
+<td>Valkey 9, machine-learning cache</td>
+<td>the complete <code>UPLOAD_LOCATION</code></td>
+</tr>
+<tr>
+<td>Nextcloud</td>
+<td><code>nextcloud:33.0.0-apache</code></td>
+<td><code>8080</code></td>
+<td>MariaDB 11</td>
+<td>Redis 7, <code>/cron.sh</code> worker</td>
+<td>the complete <code>/var/www/html</code> bind mount</td>
+</tr>
+<tr>
+<td>Vikunja</td>
+<td><code>vikunja/vikunja:2.3.0</code></td>
+<td><code>3456</code></td>
+<td>PostgreSQL 18</td>
+<td>built into the Vikunja container</td>
+<td>attachment/files directory</td>
+</tr>
+<tr>
+<td>Home Assistant</td>
+<td><code>ghcr.io/home-assistant/home-assistant:2026.3.1</code></td>
+<td><code>8123</code> through host networking</td>
+<td>SQLite inside <code>/config</code></td>
+<td>internal</td>
+<td>the complete <code>/config</code> directory</td>
+</tr>
+<tr>
+<td>Mosquitto</td>
+<td><code>eclipse-mosquitto:2</code></td>
+<td><code>1883</code>, <code>9001</code></td>
+<td>none</td>
+<td>internal persistence engine</td>
+<td>config, password file, <code>mosquitto.db</code></td>
+</tr>
+</tbody></table></div>
+<p>Database and cache ports are not published to the host. They are reachable only inside their own Compose networks. The named Immich <code>model-cache</code> volume and cache contents are reproducible and are not required for recovery.</p>
+<h3 id="22-persistent-paths">2.2 Persistent paths<a class="anchor" href="#22-persistent-paths" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr>
+<th>Stack</th>
+<th>Default host path</th>
+<th>Content</th>
+<th>Required for restore</th>
+</tr></thead><tbody>
+<tr>
+<td>Authentik</td>
+<td><code>/srv/data/authentik/database</code></td>
+<td>PostgreSQL physical files</td>
+<td>No; recreate from logical dump</td>
+</tr>
+<tr>
+<td>Authentik</td>
+<td><code>/srv/data/authentik/media</code></td>
+<td>uploaded branding/media</td>
+<td>Yes when used</td>
+</tr>
+<tr>
+<td>Authentik</td>
+<td><code>/srv/data/authentik/custom-templates</code></td>
+<td>custom templates</td>
+<td>Yes when used</td>
+</tr>
+<tr>
+<td>Authentik</td>
+<td><code>/srv/data/authentik/certs</code></td>
+<td>certificate import files</td>
+<td>Yes when used</td>
+</tr>
+<tr>
+<td>Authentik</td>
+<td><code>/srv/data/authentik/redis</code></td>
+<td>cache/queue state</td>
+<td>No; it can be rebuilt</td>
+</tr>
+<tr>
+<td>Immich</td>
+<td><code>/srv/data/immich/library</code></td>
+<td>complete <code>UPLOAD_LOCATION</code>, not only the <code>library/</code> child</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Immich</td>
+<td><code>/srv/data/immich/postgres</code></td>
+<td>PostgreSQL physical files</td>
+<td>No; recreate from logical dump</td>
+</tr>
+<tr>
+<td>Nextcloud</td>
+<td><code>/srv/data/nextcloud/html</code></td>
+<td>config, apps, themes, and user data</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Nextcloud</td>
+<td><code>/srv/data/nextcloud/db</code></td>
+<td>MariaDB physical files</td>
+<td>No; recreate from logical dump</td>
+</tr>
+<tr>
+<td>Nextcloud</td>
+<td><code>/srv/data/nextcloud/redis</code></td>
+<td>cache/file-lock state</td>
+<td>No; it can be rebuilt</td>
+</tr>
+<tr>
+<td>Vikunja</td>
+<td><code>/srv/data/vikunja/files</code></td>
+<td>attachments and uploaded files</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Vikunja</td>
+<td><code>/srv/data/vikunja/db</code></td>
+<td>PostgreSQL physical files</td>
+<td>No; recreate from logical dump</td>
+</tr>
+<tr>
+<td>Home Assistant</td>
+<td><code>compose/homeassistant/config</code></td>
+<td>YAML, <code>.storage</code>, secrets, registry, and SQLite</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Mosquitto</td>
+<td><code>compose/mqtt/config</code></td>
+<td>broker config and password hashes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Mosquitto</td>
+<td><code>compose/mqtt/data</code></td>
+<td>retained messages and persistent sessions</td>
+<td>Yes for exact continuity</td>
+</tr>
+</tbody></table></div>
+<p>The paths can be changed in each service's <code>.env</code>; the <code>.env.example</code> files document the supported variables. Relative Home Assistant and MQTT paths are resolved from their Compose directory.</p>
+<h3 id="23-dependency-flow">2.3 Dependency flow<a class="anchor" href="#23-dependency-flow" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-text">Internet/LAN clients
+        |
+        +--&gt; DNS + TLS reverse proxy (not in this repository)
+                 |--&gt; Authentik :9000
+                 |--&gt; Immich :2283 ----OIDC discovery/login----&gt; Authentik
+                 |--&gt; Nextcloud :8080
+                 |--&gt; Vikunja :3456
+                 `--&gt; Home Assistant :8123 (host network)
+
+LAN IoT clients ------&gt; Mosquitto :1883/:9001 &lt;------ Home Assistant
+
+Each application stack ------&gt; its private database/cache network</code></pre>
+<h3 id="24-secrets-that-must-survive">2.4 Secrets that must survive<a class="anchor" href="#24-secrets-that-must-survive" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr>
+<th>Stack</th>
+<th>Secret/configuration</th>
+</tr></thead><tbody>
+<tr>
+<td>Authentik</td>
+<td><code>PG_PASS</code>, <code>AUTHENTIK_SECRET_KEY</code>; the secret key must remain unchanged after restore</td>
+</tr>
+<tr>
+<td>Immich</td>
+<td><code>DB_PASSWORD</code>, <code>DB_USERNAME</code>, <code>DB_DATABASE_NAME</code>, <code>IMMICH_VERSION</code>, storage paths</td>
+</tr>
+<tr>
+<td>Nextcloud</td>
+<td>MariaDB user/root passwords; restored <code>config.php</code> also contains operational configuration</td>
+</tr>
+<tr>
+<td>Vikunja</td>
+<td><code>POSTGRES_PASSWORD</code>, <code>VIKUNJA_SERVICE_SECRET</code>, public URL</td>
+</tr>
+<tr>
+<td>Home Assistant</td>
+<td><code>secrets.yaml</code>, <code>.storage/auth*</code>, integration tokens and device registries</td>
+</tr>
+<tr>
+<td>Mosquitto</td>
+<td><code>config/passwd</code>; clients must continue using matching usernames and passwords</td>
+</tr>
+</tbody></table></div>
+<p>Live <code>.env</code>, Home Assistant runtime state, databases, MQTT data, and <code>config/passwd</code> are deliberately ignored by Git. They are transferred only in the protected backup.</p>
+<h2 id="3-external-dependencies-not-stored-in-this-repository">3. External dependencies not stored in this repository<a class="anchor" href="#3-external-dependencies-not-stored-in-this-repository" aria-label="Link to this section">#</a></h2>
+<p>Inventory and recreate all of these before cutover:</p>
+<ol>
+<li><strong>DNS:</strong> A/AAAA records for every public hostname, local split-DNS entries, and any dynamic-DNS updater. Lower DNS TTL at least one old-TTL period before migration.</li>
+<li><strong>Static address:</strong> reserve the target server's IP in DHCP or configure it statically. Home automation and MQTT clients often contain literal IP addresses.</li>
+<li><strong>Reverse proxy:</strong> preserve virtual hosts, upstream ports, forwarded headers, WebSocket support, upload limits, timeouts, and trusted-proxy settings.</li>
+<li><strong>TLS:</strong> copy or reissue certificates and confirm automatic renewal. Authentik OIDC requires correct hostnames, HTTPS, and accurate time.</li>
+<li><strong>Router/NAT and firewall:</strong> update port-forward destinations. Do not expose database/cache ports. Keep MQTT <code>1883</code> private unless TLS and strict access controls are added.</li>
+<li><strong>SMTP:</strong> Authentik notifications/recovery, Nextcloud mail, and Vikunja mail need an external SMTP account if those features are used.</li>
+<li><strong>External storage:</strong> record Immich external-library mounts, Nextcloud external-storage mounts, NFS/CIFS credentials, filesystem types, and mount ordering. These are not declared in the current Compose files.</li>
+<li><strong>Hardware:</strong> record Home Assistant USB device paths, Bluetooth adapters, Zigbee/Z-Wave coordinators, serial permissions, and any Immich hardware-acceleration devices.</li>
+<li><strong>Time synchronization:</strong> configure NTP/<code>systemd-timesyncd</code> or chrony. Incorrect time breaks TOTP, OAuth/OIDC, TLS validation, and automations.</li>
+<li><strong>Off-host backup target:</strong> the backup must not exist only on the source server. Prefer an encrypted external disk or an encrypted remote destination.</li>
+</ol>
+<h3 id="reverse-proxy-upstream-map">Reverse-proxy upstream map<a class="anchor" href="#reverse-proxy-upstream-map" aria-label="Link to this section">#</a></h3>
+<div class="table-scroll"><table><thead><tr>
+<th>Public service</th>
+<th>Target upstream</th>
+<th>Important proxy requirements</th>
+</tr></thead><tbody>
+<tr>
+<td>Authentik</td>
+<td><code>http://TARGET_IP:9000</code></td>
+<td>preserve <code>Host</code> and <code>X-Forwarded-*</code>; WebSockets</td>
+</tr>
+<tr>
+<td>Immich</td>
+<td><code>http://TARGET_IP:2283</code></td>
+<td>root of its own hostname, large bodies, no request buffering, long upload timeouts, WebSockets</td>
+</tr>
+<tr>
+<td>Nextcloud</td>
+<td><code>http://TARGET_IP:8080</code></td>
+<td>large bodies/timeouts; configure trusted proxy and overwrite URL in Nextcloud</td>
+</tr>
+<tr>
+<td>Vikunja</td>
+<td><code>http://TARGET_IP:3456</code></td>
+<td>preserve host/proto; public URL must match exactly</td>
+</tr>
+<tr>
+<td>Home Assistant</td>
+<td><code>http://TARGET_IP:8123</code></td>
+<td>WebSockets; configure <code>trusted_proxies</code> when proxied</td>
+</tr>
+</tbody></table></div>
+<p>If the reverse proxy runs on the same target server, consider binding published application ports to <code>127.0.0.1</code>. If it runs on another host, permit only that proxy and the required LAN clients. Docker-published ports can bypass normal UFW/firewalld expectations; review Docker's firewall rules explicitly.</p>
+<h2 id="4-prepare-the-source-server">4. Prepare the source server<a class="anchor" href="#4-prepare-the-source-server" aria-label="Link to this section">#</a></h2>
+<h3 id="step-1-confirm-repository-state-and-versions">Step 1: confirm repository state and versions<a class="anchor" href="#step-1-confirm-repository-state-and-versions" aria-label="Link to this section">#</a></h3>
+<p>From the repository root:</p>
+<pre><code class="language-bash">git status --short
+git log -5 --oneline
+git rev-parse HEAD
+docker ps --no-trunc --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+./scripts/preflight.sh</code></pre>
+<p>Resolve every <code>FAIL</code>. Review each <code>WARN</code>; unreadable application directories usually mean the full backup must run with <code>sudo</code>.</p>
+<p>Do not run <code>docker compose pull</code>, change an image tag, or upgrade a database immediately before migration. A container may display an old generic tag such as <code>latest</code>, but the application version must match the pinned repository version. The backup records running container and image identities in <code>meta/running-containers.tsv</code>.</p>
+<h3 id="step-2-inventory-site-specific-state">Step 2: inventory site-specific state<a class="anchor" href="#step-2-inventory-site-specific-state" aria-label="Link to this section">#</a></h3>
+<p>Record in a separate protected note:</p>
+<ul>
+<li>old and new LAN IPs;</li>
+<li>every public/local hostname and current DNS TTL;</li>
+<li>reverse-proxy and certificate locations;</li>
+<li>router forwarding rules;</li>
+<li>SMTP endpoints and credentials;</li>
+<li>OAuth redirect URIs;</li>
+<li>Immich external-library paths;</li>
+<li>Home Assistant USB paths from <code>ls -l /dev/serial/by-id/</code>;</li>
+<li>every MQTT client and the broker hostname it uses;</li>
+<li>source filesystem sizes with <code>sudo du -sh /srv/data/*</code>;</li>
+<li>target CPU architecture with <code>uname -m</code>.</li>
+</ul>
+<p>All pinned images used here support the currently deployed <code>aarch64</code> host. Confirm multi-architecture support before moving to a different architecture or enabling hardware acceleration.</p>
+<h3 id="step-3-size-the-backup-and-target">Step 3: size the backup and target<a class="anchor" href="#step-3-size-the-backup-and-target" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-bash">df -h /srv/data /mnt/backup
+sudo ./scripts/backup.sh all --full --dry-run --output /mnt/backup/homelab</code></pre>
+<p>The backup destination needs room for the compressed application data plus database dumps. The target needs room for restored data, container images, temporary database work, and growth. Do not use FAT32 because a large archive can exceed its 4 GiB file limit.</p>
+<h2 id="5-create-and-verify-the-migration-backup">5. Create and verify the migration backup<a class="anchor" href="#5-create-and-verify-the-migration-backup" aria-label="Link to this section">#</a></h2>
+<h3 id="step-1-create-a-full-backup">Step 1: create a full backup<a class="anchor" href="#step-1-create-a-full-backup" aria-label="Link to this section">#</a></h3>
+<p>Run this from the repository root with the external backup filesystem mounted:</p>
+<pre><code class="language-bash">sudo ./scripts/backup.sh all --full --output /mnt/backup/homelab</code></pre>
+<p>The script:</p>
+<ul>
+<li>uses logical <code>pg_dump</code>/<code>mariadb-dump</code> exports;</li>
+<li>temporarily quiesces file-writing services where needed;</li>
+<li>enables Nextcloud maintenance mode and stops its cron worker during its snapshot;</li>
+<li>stops Home Assistant for a consistent SQLite/config snapshot;</li>
+<li>archives the complete application file sets required for migration;</li>
+<li>restarts only containers it stopped;</li>
+<li>copies live <code>.env</code> files and MQTT authentication configuration;</li>
+<li>records Docker versions, active images, Git state, and the Git commit;</li>
+<li>creates <code>meta/repository.bundle</code>, which can recreate the repository without GitHub;</li>
+<li>writes <code>SHA256SUMS</code> and a completion marker;</li>
+<li>writes <code>INCOMPLETE</code> if an error interrupts the backup.</li>
+</ul>
+<p>Expected layout:</p>
+<pre><code class="language-text">all_YYYY-MM-DDTHH-MM-SSZ/
+├── archives/
+├── config/
+├── dumps/
+├── meta/
+│   ├── COMPLETE
+│   ├── manifest.env
+│   ├── repository.bundle
+│   └── running-containers.tsv
+├── RESTORE.txt
+└── SHA256SUMS</code></pre>
+<h3 id="step-2-verify-it-before-stopping-the-source">Step 2: verify it before stopping the source<a class="anchor" href="#step-2-verify-it-before-stopping-the-source" aria-label="Link to this section">#</a></h3>
+<p>Replace <code>BACKUP_DIR</code> with the timestamped directory:</p>
+<pre><code class="language-bash">cd BACKUP_DIR
+sudo sha256sum --check SHA256SUMS
+sudo test -f meta/COMPLETE
+sudo test ! -e INCOMPLETE
+sudo git bundle verify meta/repository.bundle
+sudo gzip -t dumps/*.sql.gz
+sudo tar -tzf archives/homeassistant-config.tar.gz &gt;/dev/null
+sudo tar -tzf archives/immich-uploads.tar.gz &gt;/dev/null
+sudo tar -tzf archives/nextcloud-html.tar.gz &gt;/dev/null</code></pre>
+<p>Every checksum must report <code>OK</code>; <code>git bundle verify</code> must report a complete history. Do not proceed with a missing archive, failed dump test, checksum error, <code>INCOMPLETE</code>, or absent <code>meta/COMPLETE</code>.</p>
+<h3 id="step-3-establish-the-final-write-boundary">Step 3: establish the final write boundary<a class="anchor" href="#step-3-establish-the-final-write-boundary" aria-label="Link to this section">#</a></h3>
+<p>The backup script restarts services so a failed backup does not leave the homelab offline. Any writes made after the backup are not present in it. When ready for final transfer/cutover, stop the source:</p>
+<pre><code class="language-bash">cd /path/to/homelabCloud
+sudo ./scripts/down.sh all
+docker ps --format '{{.Names}}' | grep -E 'authentik|immich|nextcloud|vikunja|homeassistant|mosquitto' || true</code></pre>
+<p>Do not start it again unless performing a rollback. If downtime must be minimized, rehearse the process first and use an incremental external file-copy strategy designed for each application; the included archive workflow favors clarity and recoverability.</p>
+<h3 id="step-4-transfer-the-backup-securely">Step 4: transfer the backup securely<a class="anchor" href="#step-4-transfer-the-backup-securely" aria-label="Link to this section">#</a></h3>
+<p>An external disk is simplest. Over SSH, preserve metadata and resume interrupted transfers with:</p>
+<pre><code class="language-bash">sudo rsync -aH --info=progress2 BACKUP_DIR/ admin@TARGET_IP:/srv/migration/BACKUP_NAME/</code></pre>
+<p>Run <code>sha256sum --check SHA256SUMS</code> again on the target. Use disk encryption or an encrypted transport and restrict backup directory permissions to the administrator.</p>
+<h2 id="6-prepare-the-target-server">6. Prepare the target server<a class="anchor" href="#6-prepare-the-target-server" aria-label="Link to this section">#</a></h2>
+<h3 id="step-1-install-the-operating-system-and-docker">Step 1: install the operating system and Docker<a class="anchor" href="#step-1-install-the-operating-system-and-docker" aria-label="Link to this section">#</a></h3>
+<p>The current source is Debian 13 on <code>aarch64</code>. On a Debian 13 target, install Docker Engine from Docker's official APT repository, including these packages:</p>
+<pre><code class="language-text">docker-ce
+docker-ce-cli
+containerd.io
+docker-buildx-plugin
+docker-compose-plugin</code></pre>
+<p>Follow the current <a href="https://docs.docker.com/engine/install/debian/">Docker Engine for Debian</a> instructions rather than an unofficial convenience script. Also install:</p>
+<pre><code class="language-bash">sudo apt update
+sudo apt install ca-certificates curl git rsync</code></pre>
+<p>Verify the installation:</p>
+<pre><code class="language-bash">sudo systemctl enable --now docker
+docker --version
+docker compose version
+sudo docker run --rm hello-world
+timedatectl status</code></pre>
+<p>Use <code>sudo</code> for migration commands unless the administrator is in the <code>docker</code> group and can read every source archive. Membership in the <code>docker</code> group is effectively root-equivalent.</p>
+<h3 id="step-2-configure-storage-and-mounts">Step 2: configure storage and mounts<a class="anchor" href="#step-2-configure-storage-and-mounts" aria-label="Link to this section">#</a></h3>
+<p>Create or mount <code>/srv/data</code> on a Linux filesystem that supports Unix ownership, permissions, hard links, and large files. Do not put PostgreSQL/MariaDB data on SMB/NFS. Immich explicitly does not support its PostgreSQL data directory on a network share.</p>
+<pre><code class="language-bash">sudo mkdir -p /srv/data /srv/migration
+findmnt /srv/data
+df -h /srv/data /srv/migration</code></pre>
+<p>Configure every external disk/NFS/CIFS dependency in <code>/etc/fstab</code> and verify it is mounted before Docker starts. A missing mount can cause Docker to write into an empty directory on the root filesystem.</p>
+<h3 id="step-3-restore-the-exact-repository-revision">Step 3: restore the exact repository revision<a class="anchor" href="#step-3-restore-the-exact-repository-revision" aria-label="Link to this section">#</a></h3>
+<p>Choose one method.</p>
+<p>From the backup bundle, which does not require network access:</p>
+<pre><code class="language-bash">cd /opt
+sudo git clone /srv/migration/BACKUP_NAME/meta/repository.bundle homelabCloud
+sudo chown -R ADMIN_USER:ADMIN_GROUP /opt/homelabCloud
+cd /opt/homelabCloud
+git switch master
+git rev-parse HEAD</code></pre>
+<p>Or, after pushing these commits to the remote repository:</p>
+<pre><code class="language-bash">git clone https://github.com/FilipOwsiany/homelabCloud.git
+cd homelabCloud
+git switch master
+git rev-parse HEAD</code></pre>
+<p>Compare the result with <code>GIT_COMMIT</code> in <code>BACKUP_DIR/meta/manifest.env</code>. Do not restore with a different revision unless the change has been reviewed for database/image compatibility.</p>
+<h3 id="step-4-choose-target-paths">Step 4: choose target paths<a class="anchor" href="#step-4-choose-target-paths" aria-label="Link to this section">#</a></h3>
+<p>For the same <code>/srv/data</code> layout, the restore script installs backed-up <code>.env</code> files automatically.</p>
+<p>If paths or public URLs must change:</p>
+<ol>
+<li>Copy each required <code>.env.example</code> to <code>.env</code>.</li>
+<li>Copy the old secrets from <code>BACKUP_DIR/config/SERVICE/.env</code> without printing them.</li>
+<li>Change only path, timezone, or public-URL values; preserve passwords and application secret keys.</li>
+<li>Run restore with <code>--keep-env</code>.</li>
+</ol>
+<p>Never commit a live <code>.env</code>.</p>
+<h2 id="7-restore-all-services">7. Restore all services<a class="anchor" href="#7-restore-all-services" aria-label="Link to this section">#</a></h2>
+<h3 id="step-1-verify-the-target-and-backup-without-changing-data">Step 1: verify the target and backup without changing data<a class="anchor" href="#step-1-verify-the-target-and-backup-without-changing-data" aria-label="Link to this section">#</a></h3>
+<pre><code class="language-bash">cd /opt/homelabCloud
+sudo ./scripts/restore.sh /srv/migration/BACKUP_NAME all --dry-run</code></pre>
+<p>The dry run verifies every checksum and shows the default target paths without installing secrets or stopping containers. If you selected custom paths, create the target <code>.env</code> files first and repeat the dry run so it displays those paths.</p>
+<h3 id="step-2-make-sure-destinations-are-empty">Step 2: make sure destinations are empty<a class="anchor" href="#step-2-make-sure-destinations-are-empty" aria-label="Link to this section">#</a></h3>
+<p>The restore script checks every authoritative data and database directory. If an earlier test start created content, stop the stack and move that content to a clearly named quarantine directory. Inspect the exact path before moving it. Do not merge a fresh database directory with restored data.</p>
+<h3 id="step-3-run-the-restore">Step 3: run the restore<a class="anchor" href="#step-3-run-the-restore" aria-label="Link to this section">#</a></h3>
+<p>For the default paths and backed-up environment files:</p>
+<pre><code class="language-bash">sudo ./scripts/restore.sh /srv/migration/BACKUP_NAME all --confirm</code></pre>
+<p>For deliberately edited target <code>.env</code> files:</p>
+<pre><code class="language-bash">sudo ./scripts/restore.sh /srv/migration/BACKUP_NAME all --keep-env --confirm</code></pre>
+<p>The automated restore order is MQTT, Authentik, Nextcloud, Immich, Vikunja, and Home Assistant. For each database-backed application it initializes an empty database container, waits for health, imports the logical dump with error-stop behavior, and only then starts the application. It applies Immich's required search-path compatibility transformation and runs Nextcloud's <code>maintenance:data-fingerprint</code> after restore.</p>
+<p>Do not interrupt the process. If it fails, preserve the logs and the untouched backup. The script will not delete partial target data; move the partial target directories aside before retrying.</p>
+<p>After restore, run <code>./scripts/preflight.sh</code>. Resolve every Compose, Docker-daemon, filesystem, and permission failure. Warnings about intentionally protected database directories may remain when the unprivileged administrator cannot read container-owned files.</p>
+<h2 id="8-per-service-configuration-and-validation">8. Per-service configuration and validation<a class="anchor" href="#8-per-service-configuration-and-validation" aria-label="Link to this section">#</a></h2>
+<h3 id="81-authentik">8.1 Authentik<a class="anchor" href="#81-authentik" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li><code>authentik-server</code> serves the UI, API, OIDC endpoints, and embedded outpost.</li>
+<li><code>authentik-worker</code> handles background work and optional outpost management.</li>
+<li>PostgreSQL is authoritative for users, policies, flows, applications, providers, tokens, and configuration.</li>
+<li>Redis is a cache/queue dependency and is intentionally rebuilt instead of restored.</li>
+<li>The worker mounts <code>/var/run/docker.sock</code>. This is powerful root-equivalent access; retain it only if Docker-managed outposts need it.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Preserve the original <code>AUTHENTIK_SECRET_KEY</code>. Changing it can invalidate encrypted application data and sessions.</li>
+<li>Ensure the target resolves Authentik's public hostname and has accurate time.</li>
+<li>Point the reverse proxy to port <code>9000</code>; expose <code>9443</code> only if its direct HTTPS endpoint is intentionally used.</li>
+<li>Restore or reissue external reverse-proxy certificates. Files in <code>/srv/data/authentik/certs</code> are import sources, not a replacement for proxy TLS configuration.</li>
+<li>Configure SMTP in Authentik if password recovery and alert email are required.</li>
+<li>Do not mount <code>/etc/localtime</code> into Authentik containers; Authentik uses UTC internally.</li>
+</ol>
+<p><strong>Immich OIDC integration</strong></p>
+<p>The restored database should retain the existing provider. If it must be recreated, use a confidential OAuth2/OpenID provider with Authorization Code flow and these redirect URIs, replacing the hostname:</p>
+<pre><code class="language-text">https://immich.example.com/auth/login
+https://immich.example.com/user-settings
+app.immich:///oauth-callback</code></pre>
+<p>Use scopes <code>openid email profile</code>. For this installation, keep the provider subject mode based on the user's email because existing Immich users are linked that way. Changing the subject identifier can create a second identity or the error “User already exists, but is linked to another account.” The issuer pattern is:</p>
+<pre><code class="language-text">https://AUTHENTIK_HOST/application/o/PROVIDER_SLUG/.well-known/openid-configuration</code></pre>
+<p>The current documented provider slug is <code>rpi-immich</code>. Preserve its client ID and client secret. Preserve the MFA validation stage settings if TOTP enforcement is required:</p>
+<pre><code class="language-text">stage: default-authentication-mfa-validation
+not_configured_action: configure
+device_classes: [totp]
+configuration_stages: [default-authenticator-totp-setup]</code></pre>
+<p><strong>Validation</strong></p>
+<pre><code class="language-bash">docker compose --project-directory compose/authentik ps
+docker logs --tail 100 authentik_server
+docker logs --tail 100 authentik_worker
+docker exec authentik_postgres pg_isready -U authentik -d authentik
+docker exec authentik_redis redis-cli ping
+curl -I http://TARGET_IP:9000/</code></pre>
+<p>Then sign in as an administrator, confirm users/groups/applications/providers, complete a TOTP login, and check System Tasks for failures.</p>
+<h3 id="82-immich">8.2 Immich<a class="anchor" href="#82-immich" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li>PostgreSQL contains asset paths, albums, users, sharing, faces, jobs, and all metadata. Immich does not rebuild this state by scanning the asset directory.</li>
+<li><code>UPLOAD_LOCATION</code> contains originals plus generated thumbnails, encoded video, profiles, upload staging, and automatic DB backups.</li>
+<li>Valkey is transient cache/queue state and is rebuilt.</li>
+<li>The machine-learning model cache is a named volume and can be downloaded again.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Keep <code>IMMICH_VERSION=v2.5.6</code> for the initial restore.</li>
+<li>Preserve <code>DB_PASSWORD</code>, <code>DB_USERNAME=postgres</code>, and <code>DB_DATABASE_NAME=immich</code>.</li>
+<li>Restore the complete <code>UPLOAD_LOCATION</code>, not only its <code>library/</code> child. In this repository the variable points to <code>/srv/data/immich/library</code>, and that directory itself contains Immich's <code>upload/</code>, <code>library/</code>, <code>profile/</code>, <code>thumbs/</code>, <code>encoded-video/</code>, and <code>backups/</code> children.</li>
+<li>If external libraries exist, recreate every bind mount with the same container path before starting Immich. A database path that is not mounted in the new container will appear missing.</li>
+<li>Keep the DNS override in <code>immich-server</code> if the host's Docker DNS cannot resolve the Authentik issuer. Verify both public DNS and container reachability.</li>
+<li>Configure the reverse proxy on a dedicated hostname root, not a URL subpath. Forward <code>Host</code>, <code>X-Real-IP</code>, <code>X-Forwarded-Proto</code>, and <code>X-Forwarded-For</code>; support WebSockets; disable request buffering; permit very large bodies; and use upload timeouts of at least 600 seconds.</li>
+<li>Recreate GPU/NPU device mappings and matching Immich acceleration variants only after the CPU-based restored service works.</li>
+</ol>
+<p><strong>OAuth settings in Immich</strong></p>
+<p>In Administration → Settings → OAuth, verify:</p>
+<ul>
+<li>issuer URL matches the Authentik provider discovery URL;</li>
+<li>client ID and secret match Authentik;</li>
+<li>scope is <code>openid email profile</code>;</li>
+<li>signing algorithm is <code>RS256</code>;</li>
+<li>auto-register behavior is intentional;</li>
+<li>mobile redirect support includes <code>app.immich:///oauth-callback</code>;</li>
+<li>storage-label and role claims have not changed.</li>
+</ul>
+<p><strong>Validation</strong></p>
+<pre><code class="language-bash">docker compose --project-directory compose/immich ps
+docker logs --tail 100 immich_server
+docker exec immich_postgres pg_isready -U postgres -d immich
+docker exec immich_redis redis-cli ping
+curl -I http://TARGET_IP:2283/</code></pre>
+<p>Compare user, asset, album, and shared-link counts. Open old and recent photos/videos, upload a new photo, download the original, test mobile OAuth, and inspect Administration → Job Queues. Do not delete the source assets until this succeeds.</p>
+<h3 id="83-nextcloud">8.3 Nextcloud<a class="anchor" href="#83-nextcloud" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li>MariaDB is authoritative for users, shares, file cache, app configuration, calendars, contacts, and metadata.</li>
+<li><code>/srv/data/nextcloud/html</code> contains <code>config/</code>, custom apps, themes, and the default data directory; database and files are both required.</li>
+<li>Redis provides distributed cache and transactional file locking; its persisted cache is disposable.</li>
+<li><code>nextcloud-cron</code> mounts the same <code>html</code> directory and runs <code>/cron.sh</code> for reliable background jobs.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Keep <code>nextcloud:33.0.0-apache</code> for the restore. <code>NEXTCLOUD_ADMIN_USER</code> and <code>NEXTCLOUD_ADMIN_PASSWORD</code> only bootstrap a fresh installation; they do not replace restored administrators.</li>
+<li>Point the reverse proxy to <code>TARGET_IP:8080</code> and preserve large-upload/timeouts settings.</li>
+<li>Inspect and update hostname/proxy settings only if the URL or proxy subnet changed:</li>
+</ol>
+<pre><code class="language-bash">docker exec -u www-data nextcloud_app php occ config:system:get trusted_domains
+docker exec -u www-data nextcloud_app php occ config:system:get trusted_proxies
+docker exec -u www-data nextcloud_app php occ config:system:get overwrite.cli.url</code></pre>
+<p>Add a new trusted-domain index without replacing an existing one:</p>
+<pre><code class="language-bash">docker exec -u www-data nextcloud_app php occ config:system:set trusted_domains NEXT_FREE_INDEX --value=cloud.example.com
+docker exec -u www-data nextcloud_app php occ config:system:set overwriteprotocol --value=https
+docker exec -u www-data nextcloud_app php occ config:system:set overwrite.cli.url --value=https://cloud.example.com</code></pre>
+<p>Set <code>trusted_proxies</code> to the actual reverse-proxy IP/subnet when required. Never trust an unnecessarily broad network.</p>
+<ol>
+<li>Select cron background jobs:</li>
+</ol>
+<pre><code class="language-bash">docker exec -u www-data nextcloud_app php occ background:cron</code></pre>
+<ol>
+<li>Reconfigure SMTP and any external storage endpoints if their addresses changed.</li>
+</ol>
+<p><strong>Validation</strong></p>
+<pre><code class="language-bash">docker compose --project-directory compose/nextcloud ps
+docker exec -u www-data nextcloud_app php occ status
+docker exec -u www-data nextcloud_app php occ maintenance:mode --off
+docker exec nextcloud_db healthcheck.sh --connect --innodb_initialized
+docker exec nextcloud_redis redis-cli ping
+curl http://TARGET_IP:8080/status.php</code></pre>
+<p>Sign in, list/download/upload a file, test a share, verify installed apps, run <code>occ db:add-missing-indices</code> only if the Administration Overview recommends it, and confirm background jobs run via cron.</p>
+<h3 id="84-vikunja">8.4 Vikunja<a class="anchor" href="#84-vikunja" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li>PostgreSQL contains users, projects, tasks, labels, relations, and attachment metadata.</li>
+<li><code>/srv/data/vikunja/files</code> contains attachments and other uploaded files.</li>
+<li>Database migrations run automatically when Vikunja starts.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Preserve <code>POSTGRES_PASSWORD</code> and <code>VIKUNJA_SERVICE_SECRET</code>.</li>
+<li>Set <code>VIKUNJA_PUBLIC_URL</code> to the exact browser-facing HTTPS URL, including a trailing slash.</li>
+<li>Ensure the files directory is writable by UID <code>1000</code>, the default user in the Vikunja image:</li>
+</ol>
+<pre><code class="language-bash">sudo chown -R 1000:1000 /srv/data/vikunja/files</code></pre>
+<ol>
+<li>Public registration is disabled. That is correct after restoring existing users; a fresh empty database would need a CLI-created user or temporarily enabled registration.</li>
+<li>Point the reverse proxy to port <code>3456</code> and preserve forwarded host/protocol headers.</li>
+<li>If password reset, reminders, or invitations by email are required, configure the <code>VIKUNJA_MAILER_*</code> environment variables documented for version 2.3 and test SMTP before relying on them.</li>
+</ol>
+<p><strong>Validation</strong></p>
+<pre><code class="language-bash">docker compose --project-directory compose/vikunja ps
+docker logs --tail 100 vikunja
+docker exec vikunja-db pg_isready -U vikunja -d vikunja
+docker exec vikunja /app/vikunja/vikunja doctor
+curl -I http://TARGET_IP:3456/</code></pre>
+<p>Sign in, compare projects/tasks, open and upload an attachment, create a task, and confirm its persistence after a container restart.</p>
+<h3 id="85-home-assistant">8.5 Home Assistant<a class="anchor" href="#85-home-assistant" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li>This is Home Assistant Container, not Home Assistant OS or a supervised installation. Supervisor add-ons are not included.</li>
+<li>All application state lives under <code>/config</code>, including <code>.storage</code>, YAML, registries, tokens, and <code>home-assistant_v2.db</code>.</li>
+<li><code>network_mode: host</code> is required for broad LAN discovery and makes Home Assistant listen directly on host port <code>8123</code>.</li>
+<li><code>privileged: true</code> grants broad host/device access. Review this later, but do not tighten it during migration.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Preserve the entire config archive, including dot-directories and <code>secrets.yaml</code>.</li>
+<li>Keep timezone and host time correct.</li>
+<li>Reconnect USB radios using stable <code>/dev/serial/by-id/...</code> identities. If the target adapter or path differs, update the integration before expecting Zigbee/Z-Wave devices to work.</li>
+<li>Reserve a stable LAN IP. Update integrations that point to the old server address, including MQTT broker settings if Mosquitto's address changes.</li>
+<li>If using a reverse proxy, configure Home Assistant's <code>http:</code> section with <code>use_x_forwarded_for: true</code> and only the actual proxy address under <code>trusted_proxies</code>.</li>
+<li>Recreate host-level Bluetooth/D-Bus/device access and firewall allowances needed by integrations.</li>
+</ol>
+<p><strong>Validation</strong></p>
+<pre><code class="language-bash">docker compose --project-directory compose/homeassistant ps
+docker logs --tail 200 homeassistant
+curl -I http://TARGET_IP:8123/</code></pre>
+<p>Open Settings → System → Repairs and logs. Verify entities, dashboards, automations, history, MQTT entities, radios, Bluetooth, cameras, and notifications. Trigger one safe automation and confirm state/history survives a container restart.</p>
+<h3 id="86-mosquitto-mqtt">8.6 Mosquitto MQTT<a class="anchor" href="#86-mosquitto-mqtt" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li><code>mosquitto.conf</code> enables persistence and two authenticated listeners: MQTT TCP <code>1883</code> and MQTT-over-WebSockets <code>9001</code>.</li>
+<li><code>config/passwd</code> stores salted password hashes.</li>
+<li><code>data/mosquitto.db</code> stores retained messages, subscriptions, and persistent sessions.</li>
+<li>Logs go to container stdout; the mounted log directory is currently not authoritative.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Preserve <code>config/passwd</code> or every MQTT client will need new credentials.</li>
+<li>Keep <code>allow_anonymous false</code> on both listeners.</li>
+<li>Do not expose plaintext <code>1883</code> or unencrypted <code>9001</code> to the public Internet. Use a VPN, private LAN, or configure Mosquitto TLS with certificates.</li>
+<li>Ensure data is writable by the Mosquitto container (normally UID/GID <code>1883</code> in this image). A root restore preserves the archived numeric owner.</li>
+<li>Update Home Assistant, sensors, Zigbee2MQTT, ESP devices, and MQTT Explorer if the broker hostname/IP changes.</li>
+</ol>
+<p>For a new broker only, create the first user from <code>compose/mqtt</code>:</p>
+<pre><code class="language-bash">docker run --rm -it \
+  -v &quot;$(pwd)/config:/mosquitto/config&quot; \
+  eclipse-mosquitto:2 \
+  mosquitto_passwd -c /mosquitto/config/passwd ha
+chmod 644 config/passwd config/mosquitto.conf</code></pre>
+<p>Do not use <code>-c</code> when adding another user; it recreates and overwrites the password file.</p>
+<p><strong>Validation</strong></p>
+<p>Install <code>mosquitto-clients</code> on an admin machine and use the restored password:</p>
+<pre><code class="language-bash">mosquitto_sub -h TARGET_IP -p 1883 -u ha -P 'PASSWORD' -t 'migration/test' -C 1</code></pre>
+<p>In another terminal:</p>
+<pre><code class="language-bash">mosquitto_pub -h TARGET_IP -p 1883 -u ha -P 'PASSWORD' -t 'migration/test' -m 'ok'</code></pre>
+<p>Also check:</p>
+<pre><code class="language-bash">docker logs --tail 100 mosquitto
+ss -lnt | grep -E ':(1883|9001) '</code></pre>
+<p>Confirm retained topics and Home Assistant MQTT entities reconnect. Avoid putting plaintext passwords in shell history; the inline examples are for a short controlled test.</p>
+<h2 id="9-whole-system-validation-before-dns-cutover">9. Whole-system validation before DNS cutover<a class="anchor" href="#9-whole-system-validation-before-dns-cutover" aria-label="Link to this section">#</a></h2>
+<p>Run:</p>
+<pre><code class="language-bash">cd /opt/homelabCloud
+./scripts/preflight.sh
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+docker compose --project-directory compose/authentik ps
+docker compose --project-directory compose/immich ps
+docker compose --project-directory compose/nextcloud ps
+docker compose --project-directory compose/vikunja ps
+docker compose --project-directory compose/homeassistant ps
+docker compose --project-directory compose/mqtt ps</code></pre>
+<p>Then complete this checklist:</p>
+<ul>
+<li class="check"><input type="checkbox" disabled> all database healthchecks pass and no application logs show migration errors;</li>
+<li class="check"><input type="checkbox" disabled> all expected users and counts match the source inventory;</li>
+<li class="check"><input type="checkbox" disabled> Authentik password and TOTP login work;</li>
+<li class="check"><input type="checkbox" disabled> Immich local login, web OAuth, mobile OAuth, upload, view, and original download work;</li>
+<li class="check"><input type="checkbox" disabled> Nextcloud login, list, upload, download, sharing, apps, and cron work;</li>
+<li class="check"><input type="checkbox" disabled> Vikunja login, projects/tasks, create/edit, and attachments work;</li>
+<li class="check"><input type="checkbox" disabled> Home Assistant dashboards, history, automations, MQTT, radios, and devices work;</li>
+<li class="check"><input type="checkbox" disabled> MQTT publish/subscribe and retained messages work;</li>
+<li class="check"><input type="checkbox" disabled> reverse-proxy HTTPS certificates and WebSockets work for every hostname;</li>
+<li class="check"><input type="checkbox" disabled> SMTP test messages arrive where configured;</li>
+<li class="check"><input type="checkbox" disabled> external disks/libraries are mounted and visible;</li>
+<li class="check"><input type="checkbox" disabled> a target-side test backup completes and verifies successfully.</li>
+</ul>
+<p>Test public hostnames before DNS cutover by using split DNS or an administrator workstation's hosts file. OIDC redirect URIs and TLS must use the real hostname, not only the target IP.</p>
+<h2 id="10-cutover">10. Cutover<a class="anchor" href="#10-cutover" aria-label="Link to this section">#</a></h2>
+<ol>
+<li>Confirm the source is still stopped.</li>
+<li>Change reverse-proxy upstreams and router/NAT destinations to the target.</li>
+<li>Change DNS A/AAAA records to the target and verify resolution from LAN and an external network.</li>
+<li>Clear local DNS caches only where necessary.</li>
+<li>Repeat login and write tests through the public URLs.</li>
+<li>Watch all logs during the first hour:</li>
+</ol>
+<pre><code class="language-bash">docker logs --since 10m authentik_server
+docker logs --since 10m immich_server
+docker logs --since 10m nextcloud_app
+docker logs --since 10m vikunja
+docker logs --since 10m homeassistant
+docker logs --since 10m mosquitto</code></pre>
+<ol>
+<li>Keep the verified migration backup immutable and create a new backup from the target after validation.</li>
+<li>Restore normal DNS TTL after the observation period.</li>
+</ol>
+<h2 id="11-rollback">11. Rollback<a class="anchor" href="#11-rollback" aria-label="Link to this section">#</a></h2>
+<p>Rollback is safe only if the write boundary is respected.</p>
+<ol>
+<li>Stop all target services:</li>
+</ol>
+<pre><code class="language-bash">sudo ./scripts/down.sh all</code></pre>
+<ol>
+<li>Point DNS, reverse proxy, and router rules back to the source.</li>
+<li>Start the source:</li>
+</ol>
+<pre><code class="language-bash">sudo ./scripts/up.sh all</code></pre>
+<ol>
+<li>Validate source services.</li>
+</ol>
+<p>If users wrote data to the target after cutover, do not blindly start the old source. Decide which server is authoritative and perform a new controlled export/import; there is no automatic merge for these application databases.</p>
+<h2 id="12-after-migration">12. After migration<a class="anchor" href="#12-after-migration" aria-label="Link to this section">#</a></h2>
+<h3 id="backups">Backups<a class="anchor" href="#backups" aria-label="Link to this section">#</a></h3>
+<p>Run a small database/config backup regularly and a full backup on a schedule appropriate for the data-change rate:</p>
+<pre><code class="language-bash">sudo ./scripts/backup.sh all --output /mnt/backup/homelab
+sudo ./scripts/backup.sh all --full --output /mnt/backup/homelab</code></pre>
+<p>Maintain at least three copies, on two media types, with one off-site. Encrypt backups, restrict access, monitor free space, keep retention, and test restore on an isolated host. A successful command is not proof of recoverability; checksum verification and periodic restore tests are required.</p>
+<h3 id="upgrades">Upgrades<a class="anchor" href="#upgrades" aria-label="Link to this section">#</a></h3>
+<p>Only after the migration is stable:</p>
+<ol>
+<li>create and verify a full backup;</li>
+<li>read every release note between the pinned and target version;</li>
+<li>update one application stack at a time;</li>
+<li>never skip required Authentik major-version steps or downgrade Authentik;</li>
+<li>keep database major upgrades separate from application upgrades;</li>
+<li>validate and back up again after each stack.</li>
+</ol>
+<p>The pinned Authentik release uses the repository's existing <code>/media</code> mount. Current Authentik releases use <code>/data</code>; change that layout only as part of a reviewed Authentik upgrade, not during the server move.</p>
+<h2 id="13-official-references">13. Official references<a class="anchor" href="#13-official-references" aria-label="Link to this section">#</a></h2>
+<ul>
+<li><a href="https://docs.docker.com/engine/install/debian/">Docker Engine installation for Debian</a></li>
+<li><a href="https://docs.docker.com/compose/install/linux/">Docker Compose plugin installation</a></li>
+<li><a href="https://docs.goauthentik.io/sys-mgmt/ops/backup-restore">Authentik backup and restore</a></li>
+<li><a href="https://docs.goauthentik.io/install-config/install/docker-compose/">Authentik Docker Compose installation</a></li>
+<li><a href="https://docs.goauthentik.io/core/architecture">Authentik architecture</a></li>
+<li><a href="https://docs.immich.app/administration/backup-and-restore/">Immich backup and restore</a></li>
+<li><a href="https://docs.immich.app/administration/oauth/">Immich OAuth</a></li>
+<li><a href="https://docs.immich.app/administration/reverse-proxy/">Immich reverse proxy</a></li>
+<li><a href="https://docs.nextcloud.com/server/33/admin_manual/maintenance/backup.html">Nextcloud backup</a></li>
+<li><a href="https://docs.nextcloud.com/server/33/admin_manual/maintenance/restore.html">Nextcloud restore</a></li>
+<li><a href="https://vikunja.io/docs/what-to-backup/">Vikunja backup requirements</a></li>
+<li><a href="https://vikunja.io/docs/full-docker-example/">Vikunja Docker example and permissions</a></li>
+<li><a href="https://vikunja.io/docs/cli/">Vikunja CLI and doctor</a></li>
+<li><a href="https://www.home-assistant.io/installation/linux">Home Assistant Container on Linux</a></li>
+<li><a href="https://mosquitto.org/man/mosquitto-conf-5.html">Mosquitto configuration reference</a></li>
+</ul>
+      <p class="generated">Generated from <code>docs/MIGRATION_GUIDE.md</code>. Source SHA-256: <code>c1586b23cd25960a4f4b02a9a501cee85f441d25fb3325281d41dc83b76bf522</code>.</p>
+    </main>
+  </div>
+</body>
+</html>
