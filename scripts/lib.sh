@@ -13,6 +13,7 @@ readonly -a HOMELAB_SERVICES=(
   vikunja
   homeassistant
   mqtt
+  jellyfin
 )
 
 die() {
@@ -56,11 +57,20 @@ compose_file() {
 
 run_compose() {
   local service="$1"
+  local override_file
+  local -a compose_options
   shift
-  docker compose \
-    --project-directory "$(compose_dir "${service}")" \
-    --file "$(compose_file "${service}")" \
-    "$@"
+
+  compose_options=(
+    --project-directory "$(compose_dir "${service}")"
+    --file "$(compose_file "${service}")"
+  )
+  override_file="$(compose_dir "${service}")/docker-compose.override.yml"
+  if [[ -f "${override_file}" ]]; then
+    compose_options+=(--file "${override_file}")
+  fi
+
+  docker compose "${compose_options[@]}" "$@"
 }
 
 env_value() {
@@ -118,6 +128,14 @@ persistent_path() {
     homeassistant:config)
       root="$(env_value homeassistant HOMEASSISTANT_CONFIG_PATH ./config)"
       absolute_service_path homeassistant "${root}"
+      ;;
+    jellyfin:root)
+      root="$(env_value jellyfin JELLYFIN_DATA_ROOT /srv/data/jellyfin)"
+      absolute_service_path jellyfin "${root}"
+      ;;
+    jellyfin:media)
+      root="$(env_value jellyfin JELLYFIN_MEDIA_ROOT /srv/media)"
+      absolute_service_path jellyfin "${root}"
       ;;
     mqtt:config)
       root="$(env_value mqtt MQTT_CONFIG_PATH ./config)"

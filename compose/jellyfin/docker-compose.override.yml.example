@@ -1,0 +1,8 @@
+# Optional Intel/AMD hardware acceleration. Copy this file to
+# docker-compose.override.yml and set JELLYFIN_RENDER_GID in .env.
+services:
+  jellyfin:
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "${JELLYFIN_RENDER_GID:?Set JELLYFIN_RENDER_GID in .env}"

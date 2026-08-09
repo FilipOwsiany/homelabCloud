@@ -142,6 +142,7 @@ copy_service_config() {
   copy_if_present "$(compose_file "${service}")" "${target_dir}/$(basename "$(compose_file "${service}")")"
   copy_if_present "${source_dir}/.env" "${target_dir}/.env"
   copy_if_present "${source_dir}/.env.example" "${target_dir}/.env.example"
+  copy_if_present "${source_dir}/docker-compose.override.yml" "${target_dir}/docker-compose.override.yml"
 
   if [[ "${service}" == "mqtt" ]]; then
     copy_if_present "$(persistent_path mqtt config)/mosquitto.conf" "${target_dir}/config/mosquitto.conf"
@@ -261,6 +262,15 @@ backup_homeassistant() {
   restart_stopped_containers
 }
 
+backup_jellyfin() {
+  local data_root
+  data_root="$(persistent_path jellyfin root)"
+  copy_service_config jellyfin
+  stop_if_running jellyfin
+  archive_contents "${data_root}/config" jellyfin-config
+  restart_stopped_containers
+}
+
 backup_mqtt() {
   copy_service_config mqtt
   if (( full_backup == 1 )); then
@@ -306,6 +316,10 @@ show_dry_run() {
       homeassistant)
         containers=(homeassistant)
         paths=("$(persistent_path homeassistant config)")
+        ;;
+      jellyfin)
+        containers=(jellyfin)
+        paths=("$(persistent_path jellyfin root)" "$(persistent_path jellyfin media)")
         ;;
       mqtt)
         containers=(mosquitto)

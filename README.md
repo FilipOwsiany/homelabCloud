@@ -1,6 +1,8 @@
 # Homelab Cloud
 
-Portable Docker Compose definitions and migration tooling for Authentik, Immich, Nextcloud, Vikunja, Home Assistant, and Eclipse Mosquitto.
+Portable Docker Compose definitions and migration tooling for Authentik, Immich, Nextcloud, Vikunja, Home Assistant, Eclipse Mosquitto, and Jellyfin.
+
+Jellyfin setup instructions are available in [compose/jellyfin/README.md](compose/jellyfin/README.md).
 
 The complete English migration runbook is available in two formats:
 

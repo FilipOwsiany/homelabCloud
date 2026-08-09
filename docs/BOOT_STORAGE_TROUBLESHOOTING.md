@@ -1,6 +1,6 @@
 # Preventing Empty Services After a Raspberry Pi Reboot
 
-This document explains why Authentik, Immich, Nextcloud, or Vikunja can occasionally start as apparently fresh installations after an RPi 5 reboot. Typical symptoms are missing users, an onboarding screen, missing configuration, or an empty library.
+This document explains why Authentik, Immich, Nextcloud, Vikunja, or Jellyfin can occasionally start as apparently fresh installations after an RPi 5 reboot. Typical symptoms are missing users, an onboarding screen, missing configuration, or an empty library.
 
 ## Short answer
 
@@ -18,8 +18,9 @@ The following stacks depend on `/srv/data` and are affected by this failure mode
 | Immich | `/srv/data/immich/postgres`, `/srv/data/immich/library` |
 | Nextcloud | `/srv/data/nextcloud/db`, `/srv/data/nextcloud/html`, Redis |
 | Vikunja | `/srv/data/vikunja/db`, `/srv/data/vikunja/files` |
+| Jellyfin | `/srv/data/jellyfin/config`; cache is disposable, but is affected too |
 
-Home Assistant and Mosquitto currently store their state below the repository on the SD-card filesystem, so this specific `/srv/data` race should not reset them. If either of those services is empty, check its configured bind path separately.
+Home Assistant and Mosquitto currently store their state below the repository on the SD-card filesystem, so this specific `/srv/data` race should not reset them. If either of those services is empty, check its configured bind path separately. Jellyfin media may use another mount through `JELLYFIN_MEDIA_ROOT`; that mount needs its own Docker ordering guard if it is outside `/srv/data`.
 
 ## Evidence confirmed on this host
 
@@ -49,6 +50,7 @@ The diagnosis is based on the actual RPi 5 configuration:
    /srv/data/immich
    /srv/data/nextcloud
    /srv/data/vikunja
+   /srv/data/jellyfin
    ```
 
    They are hidden whenever the real disk is mounted over `/srv/data`, but Docker can use them when that mount is absent.
@@ -94,6 +96,7 @@ findmnt -T /srv/data/authentik/database -o SOURCE,TARGET,FSTYPE,OPTIONS
 findmnt -T /srv/data/immich/postgres -o SOURCE,TARGET,FSTYPE,OPTIONS
 findmnt -T /srv/data/nextcloud/db -o SOURCE,TARGET,FSTYPE,OPTIONS
 findmnt -T /srv/data/vikunja/db -o SOURCE,TARGET,FSTYPE,OPTIONS
+findmnt -T /srv/data/jellyfin/config -o SOURCE,TARGET,FSTYPE,OPTIONS
 ```
 
 The correct source is `/dev/sda5`, mounted at `/srv/data` with filesystem type `ext4`. If the result points to `/dev/mmcblk0p2` and target `/`, the container path is on the SD card.
@@ -148,6 +151,7 @@ docker inspect authentik_postgres --format '{{range .Mounts}}{{.Source}} -> {{.D
 docker inspect immich_postgres --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} propagation={{.Propagation}}{{println}}{{end}}'
 docker inspect nextcloud_db --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} propagation={{.Propagation}}{{println}}{{end}}'
 docker inspect vikunja-db --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} propagation={{.Propagation}}{{println}}{{end}}'
+docker inspect jellyfin --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} propagation={{.Propagation}}{{println}}{{end}}'
 ```
 
 ## Permanent systemd fix
@@ -211,6 +215,7 @@ docker exec authentik_postgres pg_isready -U authentik -d authentik
 docker exec immich_postgres pg_isready -U postgres -d immich
 docker exec nextcloud_db healthcheck.sh --connect --innodb_initialized
 docker exec vikunja-db pg_isready -U vikunja -d vikunja
+curl -fsS http://127.0.0.1:8096/health
 ```
 
 Finally verify users, recent data, logins, and one safe read/write operation in each application.

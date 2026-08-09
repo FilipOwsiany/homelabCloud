@@ -1,0 +1,18 @@
+name: jellyfin
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:${JELLYFIN_VERSION:-10.11.11}
+    container_name: jellyfin
+    user: "${JELLYFIN_UID:-1000}:${JELLYFIN_GID:-1000}"
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Warsaw}
+    ports:
+      - "8096:8096/tcp"
+      - "7359:7359/udp"
+    volumes:
+      - ${JELLYFIN_DATA_ROOT:-/srv/data/jellyfin}/config:/config
+      - ${JELLYFIN_DATA_ROOT:-/srv/data/jellyfin}/cache:/cache
+      - ${JELLYFIN_MEDIA_ROOT:-/srv/media}:/media:ro
+      - /etc/localtime:/etc/localtime:ro

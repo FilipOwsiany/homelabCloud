@@ -17,7 +17,7 @@ require_command docker
 
 # Start providers before their consumers. MQTT is first because Home Assistant
 # may connect to it during startup; authentik is before OAuth clients.
-startup_order=(mqtt authentik nextcloud immich vikunja homeassistant)
+startup_order=(mqtt authentik nextcloud immich vikunja homeassistant jellyfin)
 
 if [[ "${target}" == "all" ]]; then
   for service in "${startup_order[@]}"; do

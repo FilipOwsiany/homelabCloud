@@ -16,7 +16,7 @@ target="${1:-all}"
 require_command docker
 
 # Reverse startup order so consumers stop before their providers.
-shutdown_order=(homeassistant vikunja immich nextcloud authentik mqtt)
+shutdown_order=(jellyfin homeassistant vikunja immich nextcloud authentik mqtt)
 
 if [[ "${target}" == "all" ]]; then
   for service in "${shutdown_order[@]}"; do

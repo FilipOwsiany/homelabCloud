@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Complete migration runbook for the homelabCloud services">
-  <meta name="source-sha256" content="d202d8edc945d9d02970c25988eb9fedacb5c9d8942e86e9ee0e7defc954a523">
+  <meta name="source-sha256" content="304dd390a9ab2c5d06a395e907dffb161e3308a3cf459a5e30c8732d5e96d4f7">
   <title>Homelab Server Migration Guide</title>
   <style>
     :root { color-scheme: light dark; --bg: #f7f8fa; --panel: #fff; --text: #172033; --muted: #5d687a; --line: #d8dee9; --accent: #1769aa; --code: #eef2f7; --warn: #fff8dd; }
@@ -63,8 +63,8 @@
     </nav>
     <main>
 <h1 id="homelab-server-migration-guide">Homelab Server Migration Guide<a class="anchor" href="#homelab-server-migration-guide" aria-label="Link to this section">#</a></h1>
-<p>This is the complete runbook for moving this repository and all six services to another Linux server. It covers the application containers, databases, caches, files, secrets, networking, external dependencies, validation, cutover, and rollback.</p>
-<p>The guide was verified against the repository state and official product documentation on 2026-07-22. Migrate with the versions pinned in this repository. Upgrade only after the restored server has passed every validation check.</p>
+<p>This is the complete runbook for moving this repository and all seven services to another Linux server. It covers the application containers, databases, caches, files, secrets, networking, external dependencies, validation, cutover, and rollback.</p>
+<p>The guide was verified against the repository state and official product documentation on 2026-08-09. Migrate with the versions pinned in this repository. Upgrade only after the restored server has passed every validation check.</p>
 <h2 id="1-scope-and-safety-rules">1. Scope and safety rules<a class="anchor" href="#1-scope-and-safety-rules" aria-label="Link to this section">#</a></h2>
 <p>The migration includes:</p>
 <ul>
@@ -74,13 +74,14 @@
 <li>Vikunja, PostgreSQL, and attachments;</li>
 <li>Home Assistant Container, including its YAML, <code>.storage</code>, secrets, and SQLite state;</li>
 <li>Eclipse Mosquitto, including its password file and retained/persistent messages;</li>
+<li>Jellyfin, including its configuration, users, library database, and playback state;</li>
 <li>ignored <code>.env</code> files, the exact Git revision, running-image inventory, and checksums.</li>
 </ul>
 <p>Follow these rules:</p>
 <ol>
 <li>Never migrate by copying a live PostgreSQL or MariaDB data directory. Use the logical dumps created by <code>scripts/backup.sh</code>.</li>
 <li>Never start an older application version against a database written by a newer version. Restore with the repository's pinned versions first.</li>
-<li>A complete migration requires <code>--full</code>. A backup without <code>--full</code> intentionally omits large Immich, Nextcloud, Vikunja, and MQTT data.</li>
+<li>A complete migration requires <code>--full</code>. A backup without <code>--full</code> intentionally omits large Immich, Nextcloud, Vikunja, and MQTT data. Jellyfin source media is never included and must be backed up separately.</li>
 <li>Treat the backup as highly sensitive. It contains passwords, application secret keys, identity data, Home Assistant credentials, photos, files, and MQTT password hashes.</li>
 <li>Do not allow both servers to accept writes after cutover. Their databases will diverge.</li>
 <li>Keep the old server and the verified backup unchanged until the new server has run successfully for an agreed observation period.</li>
@@ -143,6 +144,14 @@
 <td>none</td>
 <td>internal persistence engine</td>
 <td>config, password file, <code>mosquitto.db</code></td>
+</tr>
+<tr>
+<td>Jellyfin</td>
+<td><code>jellyfin/jellyfin:10.11.11</code></td>
+<td><code>8096</code>, discovery on <code>7359/udp</code></td>
+<td>application database inside <code>/config</code></td>
+<td>disposable <code>/cache</code></td>
+<td>the complete <code>/config</code> directory; source media is external</td>
 </tr>
 </tbody></table></div>
 <p>Database and cache ports are not published to the host. They are reachable only inside their own Compose networks. The named Immich <code>model-cache</code> volume and cache contents are reproducible and are not required for recovery.</p>
@@ -243,8 +252,26 @@
 <td>retained messages and persistent sessions</td>
 <td>Yes for exact continuity</td>
 </tr>
+<tr>
+<td>Jellyfin</td>
+<td><code>/srv/data/jellyfin/config</code></td>
+<td>settings, users, plugins, library database, and playback state</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Jellyfin</td>
+<td><code>/srv/data/jellyfin/cache</code></td>
+<td>images and transcoding cache</td>
+<td>No; it can be rebuilt</td>
+</tr>
+<tr>
+<td>Jellyfin</td>
+<td><code>/srv/media</code></td>
+<td>source media mounted read-only at <code>/media</code></td>
+<td>Yes, but backed up separately</td>
+</tr>
 </tbody></table></div>
-<p>The paths can be changed in each service's <code>.env</code>; the <code>.env.example</code> files document the supported variables. Relative Home Assistant and MQTT paths are resolved from their Compose directory.</p>
+<p>The paths can be changed in each service's <code>.env</code>; the <code>.env.example</code> files document the supported variables. Relative Home Assistant and MQTT paths are resolved from their Compose directory. Jellyfin media is intentionally outside the repository backup because it can be very large and may live on separate storage.</p>
 <h3 id="23-dependency-flow">2.3 Dependency flow<a class="anchor" href="#23-dependency-flow" aria-label="Link to this section">#</a></h3>
 <pre><code class="language-text">Internet/LAN clients
         |
@@ -253,6 +280,7 @@
                  |--&gt; Immich :2283 ----OIDC discovery/login----&gt; Authentik
                  |--&gt; Nextcloud :8080
                  |--&gt; Vikunja :3456
+                 |--&gt; Jellyfin :8096
                  `--&gt; Home Assistant :8123 (host network)
 
 LAN IoT clients ------&gt; Mosquitto :1883/:9001 &lt;------ Home Assistant
@@ -287,8 +315,12 @@ Each application stack ------&gt; its private database/cache network</code></pre
 <td>Mosquitto</td>
 <td><code>config/passwd</code>; clients must continue using matching usernames and passwords</td>
 </tr>
+<tr>
+<td>Jellyfin</td>
+<td>all of <code>/config</code>, including users, API keys, plugins, library metadata, and playback state</td>
+</tr>
 </tbody></table></div>
-<p>Live <code>.env</code>, Home Assistant runtime state, databases, MQTT data, and <code>config/passwd</code> are deliberately ignored by Git. They are transferred only in the protected backup.</p>
+<p>Live <code>.env</code>, Home Assistant and Jellyfin runtime state, databases, MQTT data, and <code>config/passwd</code> are deliberately ignored by Git. They are transferred only in the protected backup.</p>
 <h2 id="3-external-dependencies-not-stored-in-this-repository">3. External dependencies not stored in this repository<a class="anchor" href="#3-external-dependencies-not-stored-in-this-repository" aria-label="Link to this section">#</a></h2>
 <p>Inventory and recreate all of these before cutover:</p>
 <ol>
@@ -298,8 +330,8 @@ Each application stack ------&gt; its private database/cache network</code></pre
 <li><strong>TLS:</strong> copy or reissue certificates and confirm automatic renewal. Authentik OIDC requires correct hostnames, HTTPS, and accurate time.</li>
 <li><strong>Router/NAT and firewall:</strong> update port-forward destinations. Do not expose database/cache ports. Keep MQTT <code>1883</code> private unless TLS and strict access controls are added.</li>
 <li><strong>SMTP:</strong> Authentik notifications/recovery, Nextcloud mail, and Vikunja mail need an external SMTP account if those features are used.</li>
-<li><strong>External storage:</strong> record Immich external-library mounts, Nextcloud external-storage mounts, NFS/CIFS credentials, filesystem types, and mount ordering. These are not declared in the current Compose files.</li>
-<li><strong>Hardware:</strong> record Home Assistant USB device paths, Bluetooth adapters, Zigbee/Z-Wave coordinators, serial permissions, and any Immich hardware-acceleration devices.</li>
+<li><strong>External storage:</strong> record Immich external-library mounts, Nextcloud external-storage mounts, Jellyfin's <code>JELLYFIN_MEDIA_ROOT</code>, NFS/CIFS credentials, filesystem types, and mount ordering.</li>
+<li><strong>Hardware:</strong> record Home Assistant USB device paths, Bluetooth adapters, Zigbee/Z-Wave coordinators, serial permissions, and any Immich or Jellyfin hardware-acceleration devices and group IDs.</li>
 <li><strong>Time synchronization:</strong> configure NTP/<code>systemd-timesyncd</code> or chrony. Incorrect time breaks TOTP, OAuth/OIDC, TLS validation, and automations.</li>
 <li><strong>Off-host backup target:</strong> the backup must not exist only on the source server. Prefer an encrypted external disk or an encrypted remote destination.</li>
 </ol>
@@ -334,6 +366,11 @@ Each application stack ------&gt; its private database/cache network</code></pre
 <td><code>http://TARGET_IP:8123</code></td>
 <td>WebSockets; configure <code>trusted_proxies</code> when proxied</td>
 </tr>
+<tr>
+<td>Jellyfin</td>
+<td><code>http://TARGET_IP:8096</code></td>
+<td>WebSockets; long streaming timeouts; do not buffer media responses</td>
+</tr>
 </tbody></table></div>
 <p>If the reverse proxy runs on the same target server, consider binding published application ports to <code>127.0.0.1</code>. If it runs on another host, permit only that proxy and the required LAN clients. Docker-published ports can bypass normal UFW/firewalld expectations; review Docker's firewall rules explicitly.</p>
 <h2 id="4-prepare-the-source-server">4. Prepare the source server<a class="anchor" href="#4-prepare-the-source-server" aria-label="Link to this section">#</a></h2>
@@ -358,6 +395,7 @@ docker ps --no-trunc --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
 <li>Immich external-library paths;</li>
 <li>Home Assistant USB paths from <code>ls -l /dev/serial/by-id/</code>;</li>
 <li>every MQTT client and the broker hostname it uses;</li>
+<li>Jellyfin media mounts, internal library paths, hardware-transcoding device, and <code>render</code> group ID;</li>
 <li>source filesystem sizes with <code>sudo du -sh /srv/data/*</code>;</li>
 <li>target CPU architecture with <code>uname -m</code>.</li>
 </ul>
@@ -376,6 +414,7 @@ sudo ./scripts/backup.sh all --full --dry-run --output /mnt/backup/homelab</code
 <li>temporarily quiesces file-writing services where needed;</li>
 <li>enables Nextcloud maintenance mode and stops its cron worker during its snapshot;</li>
 <li>stops Home Assistant for a consistent SQLite/config snapshot;</li>
+<li>stops Jellyfin for a consistent configuration and application-database snapshot;</li>
 <li>archives the complete application file sets required for migration;</li>
 <li>restarts only containers it stopped;</li>
 <li>copies live <code>.env</code> files and MQTT authentication configuration;</li>
@@ -405,6 +444,7 @@ sudo test ! -e INCOMPLETE
 sudo git bundle verify meta/repository.bundle
 sudo gzip -t dumps/*.sql.gz
 sudo tar -tzf archives/homeassistant-config.tar.gz &gt;/dev/null
+sudo tar -tzf archives/jellyfin-config.tar.gz &gt;/dev/null
 sudo tar -tzf archives/immich-uploads.tar.gz &gt;/dev/null
 sudo tar -tzf archives/nextcloud-html.tar.gz &gt;/dev/null</code></pre>
 <p>Every checksum must report <code>OK</code>; <code>git bundle verify</code> must report a complete history. Do not proceed with a missing archive, failed dump test, checksum error, <code>INCOMPLETE</code>, or absent <code>meta/COMPLETE</code>.</p>
@@ -412,7 +452,7 @@ sudo tar -tzf archives/nextcloud-html.tar.gz &gt;/dev/null</code></pre>
 <p>The backup script restarts services so a failed backup does not leave the homelab offline. Any writes made after the backup are not present in it. When ready for final transfer/cutover, stop the source:</p>
 <pre><code class="language-bash">cd /path/to/homelabCloud
 sudo ./scripts/down.sh all
-docker ps --format '{{.Names}}' | grep -E 'authentik|immich|nextcloud|vikunja|homeassistant|mosquitto' || true</code></pre>
+docker ps --format '{{.Names}}' | grep -E 'authentik|immich|nextcloud|vikunja|homeassistant|mosquitto|jellyfin' || true</code></pre>
 <p>Do not start it again unless performing a rollback. If downtime must be minimized, rehearse the process first and use an incremental external file-copy strategy designed for each application; the included archive workflow favors clarity and recoverability.</p>
 <h3 id="step-4-transfer-the-backup-securely">Step 4: transfer the backup securely<a class="anchor" href="#step-4-transfer-the-backup-securely" aria-label="Link to this section">#</a></h3>
 <p>An external disk is simplest. Over SSH, preserve metadata and resume interrupted transfers with:</p>
@@ -480,7 +520,7 @@ sudo ./scripts/restore.sh /srv/migration/BACKUP_NAME all --dry-run</code></pre>
 <pre><code class="language-bash">sudo ./scripts/restore.sh /srv/migration/BACKUP_NAME all --confirm</code></pre>
 <p>For deliberately edited target <code>.env</code> files:</p>
 <pre><code class="language-bash">sudo ./scripts/restore.sh /srv/migration/BACKUP_NAME all --keep-env --confirm</code></pre>
-<p>The automated restore order is MQTT, Authentik, Nextcloud, Immich, Vikunja, and Home Assistant. For each database-backed application it initializes an empty database container, waits for health, imports the logical dump with error-stop behavior, and only then starts the application. It applies Immich's required search-path compatibility transformation and runs Nextcloud's <code>maintenance:data-fingerprint</code> after restore.</p>
+<p>The automated restore order is MQTT, Authentik, Nextcloud, Immich, Vikunja, Home Assistant, and Jellyfin. For each database-backed application it initializes an empty database container, waits for health, imports the logical dump with error-stop behavior, and only then starts the application. It applies Immich's required search-path compatibility transformation and runs Nextcloud's <code>maintenance:data-fingerprint</code> after restore. Jellyfin's self-contained <code>/config</code> archive is restored before its container starts.</p>
 <p>Do not interrupt the process. If it fails, preserve the logs and the untouched backup. The script will not delete partial target data; move the partial target directories aside before retrying.</p>
 <p>After restore, run <code>./scripts/preflight.sh</code>. Resolve every Compose, Docker-daemon, filesystem, and permission failure. Warnings about intentionally protected database directories may remain when the unprivileged administrator cannot read container-owned files.</p>
 <h2 id="8-per-service-configuration-and-validation">8. Per-service configuration and validation<a class="anchor" href="#8-per-service-configuration-and-validation" aria-label="Link to this section">#</a></h2>
@@ -675,6 +715,27 @@ chmod 644 config/passwd config/mosquitto.conf</code></pre>
 <pre><code class="language-bash">docker logs --tail 100 mosquitto
 ss -lnt | grep -E ':(1883|9001) '</code></pre>
 <p>Confirm retained topics and Home Assistant MQTT entities reconnect. Avoid putting plaintext passwords in shell history; the inline examples are for a short controlled test.</p>
+<h3 id="87-jellyfin">8.7 Jellyfin<a class="anchor" href="#87-jellyfin" aria-label="Link to this section">#</a></h3>
+<p><strong>Internal dependencies</strong></p>
+<ul>
+<li>The official container stores configuration, users, plugins, the application database, and playback state under <code>/config</code>.</li>
+<li><code>/cache</code> is reproducible and is not included in migration backups.</li>
+<li><code>JELLYFIN_MEDIA_ROOT</code> is mounted read-only at <code>/media</code>. The repository backup does not copy the source media.</li>
+<li>Bridge networking publishes HTTP on <code>8096/tcp</code> and LAN discovery on <code>7359/udp</code>. DLNA requires host networking and is not enabled here.</li>
+</ul>
+<p><strong>Required configuration</strong></p>
+<ol>
+<li>Mount or restore the media library separately before starting Jellyfin. Keep the same paths inside the container (<code>/media/...</code>) so existing library entries still resolve.</li>
+<li>Preserve <code>JELLYFIN_UID</code> and <code>JELLYFIN_GID</code>, or update filesystem ownership/ACLs so that this non-root account owns <code>/config</code> and <code>/cache</code> and can read the media tree.</li>
+<li>If hardware transcoding was enabled, recreate the local <code>docker-compose.override.yml</code>, <code>/dev/dri/renderD128</code>, and the host <code>render</code> group ID. Follow <code>compose/jellyfin/README.md</code>.</li>
+<li>Point the reverse proxy to <code>TARGET_IP:8096</code>, use HTTPS outside the LAN, and test WebSocket and long-running stream behavior.</li>
+<li>Do not upgrade from the pinned <code>10.11.11</code> image during restore. Back up and test a later version only after migration validation.</li>
+</ol>
+<p><strong>Validation</strong></p>
+<pre><code class="language-bash">docker compose --project-directory compose/jellyfin ps
+docker logs --tail 100 jellyfin
+curl -fsS http://TARGET_IP:8096/health</code></pre>
+<p>Sign in with an existing account. Confirm users, libraries, posters, watch state, subtitles, direct play, and one forced transcode. Restart the container and verify the same state remains available.</p>
 <h2 id="9-whole-system-validation-before-dns-cutover">9. Whole-system validation before DNS cutover<a class="anchor" href="#9-whole-system-validation-before-dns-cutover" aria-label="Link to this section">#</a></h2>
 <p>Run:</p>
 <pre><code class="language-bash">cd /opt/homelabCloud
@@ -685,7 +746,8 @@ docker compose --project-directory compose/immich ps
 docker compose --project-directory compose/nextcloud ps
 docker compose --project-directory compose/vikunja ps
 docker compose --project-directory compose/homeassistant ps
-docker compose --project-directory compose/mqtt ps</code></pre>
+docker compose --project-directory compose/mqtt ps
+docker compose --project-directory compose/jellyfin ps</code></pre>
 <p>Then complete this checklist:</p>
 <ul>
 <li class="check"><input type="checkbox" disabled> all database healthchecks pass and no application logs show migration errors;</li>
@@ -696,6 +758,7 @@ docker compose --project-directory compose/mqtt ps</code></pre>
 <li class="check"><input type="checkbox" disabled> Vikunja login, projects/tasks, create/edit, and attachments work;</li>
 <li class="check"><input type="checkbox" disabled> Home Assistant dashboards, history, automations, MQTT, radios, and devices work;</li>
 <li class="check"><input type="checkbox" disabled> MQTT publish/subscribe and retained messages work;</li>
+<li class="check"><input type="checkbox" disabled> Jellyfin users, libraries, playback state, direct play, and transcoding work;</li>
 <li class="check"><input type="checkbox" disabled> reverse-proxy HTTPS certificates and WebSockets work for every hostname;</li>
 <li class="check"><input type="checkbox" disabled> SMTP test messages arrive where configured;</li>
 <li class="check"><input type="checkbox" disabled> external disks/libraries are mounted and visible;</li>
@@ -716,7 +779,8 @@ docker logs --since 10m immich_server
 docker logs --since 10m nextcloud_app
 docker logs --since 10m vikunja
 docker logs --since 10m homeassistant
-docker logs --since 10m mosquitto</code></pre>
+docker logs --since 10m mosquitto
+docker logs --since 10m jellyfin</code></pre>
 <ol>
 <li>Keep the verified migration backup immutable and create a new backup from the target after validation.</li>
 <li>Restore normal DNS TTL after the observation period.</li>
@@ -742,6 +806,7 @@ docker logs --since 10m mosquitto</code></pre>
 <pre><code class="language-bash">sudo ./scripts/backup.sh all --output /mnt/backup/homelab
 sudo ./scripts/backup.sh all --full --output /mnt/backup/homelab</code></pre>
 <p>Maintain at least three copies, on two media types, with one off-site. Encrypt backups, restrict access, monitor free space, keep retention, and test restore on an isolated host. A successful command is not proof of recoverability; checksum verification and periodic restore tests are required.</p>
+<p>The repository backup includes Jellyfin <code>/config</code> but not <code>JELLYFIN_MEDIA_ROOT</code>. Back up the source media separately and test that both recovery paths preserve identical <code>/media/...</code> paths inside the container.</p>
 <h3 id="upgrades">Upgrades<a class="anchor" href="#upgrades" aria-label="Link to this section">#</a></h3>
 <p>Only after the migration is stable:</p>
 <ol>
@@ -770,8 +835,11 @@ sudo ./scripts/backup.sh all --full --output /mnt/backup/homelab</code></pre>
 <li><a href="https://vikunja.io/docs/cli/">Vikunja CLI and doctor</a></li>
 <li><a href="https://www.home-assistant.io/installation/linux">Home Assistant Container on Linux</a></li>
 <li><a href="https://mosquitto.org/man/mosquitto-conf-5.html">Mosquitto configuration reference</a></li>
+<li><a href="https://jellyfin.org/docs/general/installation/container/">Jellyfin container installation</a></li>
+<li><a href="https://jellyfin.org/docs/general/administration/backup-and-restore/">Jellyfin backup and restore</a></li>
+<li><a href="https://jellyfin.org/docs/general/post-install/transcoding/hardware-acceleration/">Jellyfin hardware acceleration</a></li>
 </ul>
-      <p class="generated">Generated from <code>docs/MIGRATION_GUIDE.md</code>. Source SHA-256: <code>d202d8edc945d9d02970c25988eb9fedacb5c9d8942e86e9ee0e7defc954a523</code>.</p>
+      <p class="generated">Generated from <code>docs/MIGRATION_GUIDE.md</code>. Source SHA-256: <code>304dd390a9ab2c5d06a395e907dffb161e3308a3cf459a5e30c8732d5e96d4f7</code>.</p>
     </main>
   </div>
 </body>

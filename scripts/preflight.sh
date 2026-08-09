@@ -52,6 +52,8 @@ for item in \
   "nextcloud:$(persistent_path nextcloud root)" \
   "vikunja:$(persistent_path vikunja root)" \
   "homeassistant:$(persistent_path homeassistant config)" \
+  "jellyfin:$(persistent_path jellyfin root)" \
+  "jellyfin media:$(persistent_path jellyfin media)" \
   "mqtt config:$(persistent_path mqtt config)" \
   "mqtt data:$(persistent_path mqtt data)"; do
   label="${item%%:*}"

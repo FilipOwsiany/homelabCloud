@@ -95,7 +95,7 @@ if [[ "${backup_scope}" != "all" && "${restore_scope}" != "${backup_scope}" ]]; 
 fi
 
 if [[ "${restore_scope}" == "all" ]]; then
-  selected_services=(mqtt authentik nextcloud immich vikunja homeassistant)
+  selected_services=(mqtt authentik nextcloud immich vikunja homeassistant jellyfin)
 else
   selected_services=("${restore_scope}")
 fi
@@ -214,6 +214,11 @@ precheck_service() {
       require_backup_file "${backup_dir}/archives/homeassistant-config.tar.gz"
       require_empty_directory "$(persistent_path homeassistant config)"
       ;;
+    jellyfin)
+      root="$(persistent_path jellyfin root)"
+      require_backup_file "${backup_dir}/archives/jellyfin-config.tar.gz"
+      require_empty_directory "${root}/config"
+      ;;
     mqtt)
       require_backup_file "${backup_dir}/archives/mqtt-data.tar.gz"
       require_empty_directory "$(persistent_path mqtt data)"
@@ -241,6 +246,10 @@ show_restore_plan() {
       ;;
     homeassistant)
       printf '  configuration and SQLite state -> %s\n' "$(persistent_path homeassistant config)"
+      ;;
+    jellyfin)
+      printf '  configuration and application database -> %s/config\n' "$(persistent_path jellyfin root)"
+      printf '  media remains external               -> %s\n' "$(persistent_path jellyfin media)"
       ;;
     mqtt)
       printf '  broker configuration -> %s\n' "$(persistent_path mqtt config)"
@@ -354,6 +363,13 @@ restore_vikunja() {
 restore_homeassistant() {
   extract_archive "${backup_dir}/archives/homeassistant-config.tar.gz" "$(persistent_path homeassistant config)"
   run_compose homeassistant up -d
+}
+
+restore_jellyfin() {
+  extract_archive \
+    "${backup_dir}/archives/jellyfin-config.tar.gz" \
+    "$(persistent_path jellyfin root)/config"
+  run_compose jellyfin up -d
 }
 
 restore_mqtt() {

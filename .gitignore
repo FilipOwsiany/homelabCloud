@@ -3,6 +3,7 @@
 !**/.env.example
 **/secrets.yaml
 compose/mqtt/config/passwd
+**/docker-compose.override.yml
 
 # Runtime and persistent data.
 backups/
